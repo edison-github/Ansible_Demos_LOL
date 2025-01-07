@@ -1,0 +1,46 @@
+- name: Configurar DHCP en Windows Server 2022
+  hosts: windows_server
+  tasks:
+    # 1. Instalar la característica de DHCP
+    - name: Instalar el rol de DHCP
+      win_feature:
+        name: DHCP
+        state: present
+      register: dhcp_installed
+
+    # 2. Configurar el servicio DHCP si no estaba instalado previamente
+    - name: Iniciar y habilitar el servicio DHCP
+      win_service:
+        name: DHCPServer
+        start_mode: auto
+        state: started
+      when: dhcp_installed.changed
+
+    # 3. Configurar un nuevo ámbito DHCP
+    - name: Configurar un ámbito DHCP
+      win_command: |
+        Add-DhcpServerv4Scope -Name "RedLocal" -StartRange 192.168.1.100 -EndRange 192.168.1.200 `
+          -SubnetMask 255.255.255.0 -LeaseDuration 1.00:00:00
+      register: scope_added
+
+    # 4. Configurar la puerta de enlace predeterminada para el ámbito
+    - name: Configurar gateway en el ámbito DHCP
+      win_command: |
+        Set-DhcpServerv4OptionValue -ScopeId 192.168.1.0 -OptionId 003 -Value 192.168.1.1
+      when: scope_added.rc == 0
+
+    # 5. Configurar los servidores DNS en el ámbito DHCP
+    - name: Configurar servidores DNS en el ámbito DHCP
+      win_command: |
+        Set-DhcpServerv4OptionValue -ScopeId 192.168.1.0 -OptionId 006 -Value 8.8.8.8,8.8.4.4
+      when: scope_added.rc == 0
+
+    # 6. Verificar el estado del servicio DHCP
+    - name: Verificar estado del servicio DHCP
+      win_service_info:
+        name: DHCPServer
+      register: dhcp_status
+
+    - name: Mostrar estado del servicio DHCP
+      debug:
+        msg: "El servicio DHCP está en estado: {{ dhcp_status.start_mode }}"
